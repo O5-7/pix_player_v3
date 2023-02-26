@@ -3,9 +3,13 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <Mmsystem.h>
 
+#define du
 
+using namespace std::chrono;
 using namespace std;
+
 
 /**
  * @brief string转 wchar_t *
@@ -141,7 +145,7 @@ int main(int argc, char *argv[]) {
     bool loop_play = false;
     bool audio = false;
 
-    codes_result.open(R"(C:\Users\Normal\PycharmProjects\zi_fu_hua_v3\aya\result.zfh)");
+    codes_result.open(string(argv[1]) + "\\result.zfh");
 //  读取元数据 直到END_META_DATA
     while (getline(codes_result, codes)) {
         if (codes.substr(0, 2) == "//") continue; // 忽略 //
@@ -185,29 +189,47 @@ int main(int argc, char *argv[]) {
         if (codes.substr(0, index) == "audio") {
 //           是否播放音频
             string _audio = codes.substr(index + 1, codes.length() - index - 1);
-            loop_play = _audio == "True";
+            audio = _audio == "True";
         }
     }
-// TODO:
-//  audio read and play
-//  playing duration
-//  loop play
+
+    codes_result.close();
+    while (true) {
+        codes_result.open(string(argv[1]) + "\\result.zfh");
+        while (getline(codes_result, codes)) {
+            if (codes == "END_META_DATA") break;
+        }
+
+        if (audio) {
+            PlaySound(TEXT((string(argv[1]) + "\\result.wav").data()), nullptr, SND_FILENAME | SND_ASYNC);
+        }
 
 //    cout << "\033[38;2;255;255;255m"; // << "\033[0m";
-    int line = 0;
-    while (getline(codes_result, codes)) {
-        if (codes.substr(0, 2) == "//") continue;
-        if (codes.substr(0, 9) == "duration=") {
-            float duration = stof(codes.substr(9, codes.length() - 9));
-            continue;
+        int line = 0;
+        float delta_start = 0.0;
+        auto start_time = high_resolution_clock::now();
+        while (getline(codes_result, codes)) {
+            if (codes.substr(0, 2) == "//") continue;
+            if (codes.substr(0, 9) == "duration=") {
+                float duration = stof(codes.substr(9, codes.length() - 9));
+                delta_start += duration;
+                continue;
+            }
+            cout << codes << endl;
+            line++;
+            if (line % str_size_Y == 0) {
+                Set_Windows_Console_Pos(0, 0);
+                while (true) {
+                    auto delta_time_now = high_resolution_clock::now() - start_time;
+                    long long delta_time_now_ms = duration_cast<milliseconds>(delta_time_now).count();
+                    if (float(delta_time_now_ms) > delta_start)break;
+                }
+            }
         }
-        cout << codes << endl;
-        line++;
-        if (line % str_size_Y == 0) {
-            Set_Windows_Console_Pos(0, 0);
-        }
+        codes_result.close();
+        if (!loop_play) break;
     }
-    codes_result.close();
+
 
     cout << endl;
     getchar();
