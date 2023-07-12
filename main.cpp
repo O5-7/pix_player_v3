@@ -1,15 +1,16 @@
+#include <cstring>
 #include <windows.h>
 #include <string>
 #include <fstream>
 #include <iostream>
 #include <chrono>
 #include <Mmsystem.h>
+#include <iomanip>
 
-#define du
 
 using namespace std::chrono;
 using namespace std;
-
+#define clock high_resolution_clock
 
 /**
  * @brief string转 wchar_t *
@@ -48,9 +49,8 @@ bool Show_Cursor(bool visible) { //显示或隐藏光标
  *     -<em>false</em> 失败
  *     -<em>true</em> 成功
  */
-bool Set_Windows_Console_Pos(short x, short y) {
-    HANDLE hConsole_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    bool success = SetConsoleCursorPosition(hConsole_out, {x, y});
+bool Set_Windows_Console_Pos(HANDLE hout, short x, short y) {
+    bool success = SetConsoleCursorPosition(hout, {x, y});
     return success;
 }
 
@@ -128,7 +128,10 @@ bool EnableVTMode() {
 }
 
 int main(int argc, char *argv[]) {
+
 //   初始设置
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    ios::sync_with_stdio(false);
     EnableVTMode();
     Show_Cursor(false);
     SetWindowPos(GetConsoleWindow(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
@@ -155,7 +158,7 @@ int main(int argc, char *argv[]) {
                     short(font_size),
                     MultiByte_To_WideChar(font_type)
             );
-            Set_Windows_size_without_scrollbar(short(str_size_X * 2 + 1), short(str_size_Y + 1));
+            Set_Windows_size_without_scrollbar(short(str_size_X * 2 + 1), short(str_size_Y + 3));
             // 禁止修改窗口大小
             SetWindowLongPtrA(GetConsoleWindow(), GWL_STYLE, GetWindowLongPtrA(GetConsoleWindow(), GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX & ~WS_MINIMIZEBOX);
             break;
@@ -194,6 +197,7 @@ int main(int argc, char *argv[]) {
     }
 
     codes_result.close();
+    SetWindowPos(GetConsoleWindow(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     while (true) {
         codes_result.open(string(argv[1]) + "\\result.zfh");
         while (getline(codes_result, codes)) {
@@ -201,28 +205,67 @@ int main(int argc, char *argv[]) {
         }
 
         if (audio) {
-            PlaySound(TEXT((string(argv[1]) + "\\result.wav").data()), nullptr, SND_FILENAME | SND_ASYNC);
+            bool audio_success = PlaySound(TEXT((string(argv[1]) + "\\result.wav").data()), nullptr, SND_FILENAME | SND_ASYNC);
+            if (!audio_success) {
+                cout << """""""""""""";
+                getchar();
+                return 0;
+            }
         }
 
 //    cout << "\033[38;2;255;255;255m"; // << "\033[0m";
         int line = 0;
         float delta_start = 0.0;
-        auto start_time = high_resolution_clock::now();
+        auto play_start_time = clock::now(); // 播放的开始时间
+        auto frame_start_time = clock::now(); // 一帧的开始时间
+        int frame_count = 0;
+        string multi_line;
+        float duration = 0;
+        float frame_print_time = 0.0; // 打印一帧的所有时间
         while (getline(codes_result, codes)) {
+            frame_start_time = clock::now();
+            /**
+             * 循环读取
+             * 打印实时参数
+             */
             if (codes.substr(0, 2) == "//") continue;
             if (codes.substr(0, 9) == "duration=") {
-                float duration = stof(codes.substr(9, codes.length() - 9));
+                duration = stof(codes.substr(9, codes.length() - 9));
                 delta_start += duration;
                 continue;
             }
-            cout << codes << endl;
+            multi_line += codes + '\n' + "\u001B[0m";
             line++;
             if (line % str_size_Y == 0) {
-                Set_Windows_Console_Pos(0, 0);
+
+                WriteConsole(hOut, multi_line.c_str(), multi_line.length(), nullptr, nullptr);
+                multi_line = "";
+//                printf(multi_line.c_str());
+//                cout << multi_line;
+                if (frame_print_time > duration) {
+                    cout << "\u001B[38;2;255;0;0;48;2;0;0;0m"
+                         << setw(6) << right << int(frame_print_time * 100) / 100.0
+                         << "\u001B[0m";
+                } else {
+                    cout << setw(6) << right << int(frame_print_time * 100) / 100.0;
+                }
+                cout << '/' << int(duration * 100) / 100.0 << "ms   ";
+                cout << 1000.0 / duration << "hz";
+                cout << setw(6) << right << frame_count++;
+                cout << "frames    time(ms):";
+
                 while (true) {
-                    auto delta_time_now = high_resolution_clock::now() - start_time;
+                    // 循环检测下一帧是否开始
+                    chrono::duration delta_time_now = clock::now() - play_start_time;
                     long long delta_time_now_ms = duration_cast<milliseconds>(delta_time_now).count();
-                    if (float(delta_time_now_ms) > delta_start)break;
+                    if (float(delta_time_now_ms) > delta_start) {
+                        cout << setw(7) << right << (float(delta_time_now_ms)) << " / " << setw(7) << left << int(delta_start);
+                        cout << "delta_time(ms) =" << setw(7) << right << int((float(delta_time_now_ms) - delta_start) * 100) / 100.0;
+                        Set_Windows_Console_Pos(hOut, 0, 0);
+                        frame_print_time = (float) duration_cast<microseconds>(clock::now() - frame_start_time).count() / 1000;
+//                        frame_start_time = clock::now();
+                        break;
+                    }
                 }
             }
         }
